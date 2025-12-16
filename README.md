@@ -4,7 +4,7 @@ This is a **local MCP server** that submits Steady check-ins by driving Steady�
 
 It’s built for the workflow:
 
-> You tell the AI: **team + check-in text** → AI calls the MCP tool → Steady check-in is submitted.
+> You tell the AI: **team + check-in fields** (previous / next / blockers) → AI calls the MCP tool → Steady check-in is submitted.
 
 ---
 
@@ -273,7 +273,9 @@ Example:
 ```json
 {
   "team": "Everest AI",
-  "text": "No work today",
+  "previous": "Wrapped up CI fixes and reviewed PRs.",
+  "text": "Next: finalize the MCP schema changes and update docs.",
+  "blockers": "No blockers.",
   "mood": "calm"
 }
 ```

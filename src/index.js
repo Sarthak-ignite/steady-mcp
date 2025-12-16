@@ -174,6 +174,19 @@ function escapeHtml(s) {
     .replaceAll("'", "&#39;");
 }
 
+function textToRichTextHtml(text) {
+  // Steady expects rich-text HTML for answer_set fields.
+  // We keep it safe by escaping user input and only adding minimal tags.
+  const raw = String(text ?? "").trim();
+  if (!raw) return "";
+  const paragraphs = raw
+    .split(/\n{2,}/g)
+    .map((p) => p.trim())
+    .filter(Boolean)
+    .map((p) => `<p>${escapeHtml(p).replace(/\r\n|\r|\n/g, "<br>")}</p>`);
+  return paragraphs.join("");
+}
+
 async function curl({ url, cookies, method = "GET", headers = {}, dataUrlencode = [], wantHeaders = false }) {
   const args = ["-sS"];
   if (wantHeaders) args.push("-D", "-");
@@ -527,7 +540,15 @@ async function steadyListTeams({ jarPath, date }) {
   return { date: isoDate, teams };
 }
 
-async function steadySubmitCheckin({ jarPath, team, text, mood = "calm", date }) {
+async function steadySubmitCheckin({
+  jarPath,
+  team,
+  text,
+  previous = "",
+  blockers = "",
+  mood = "calm",
+  date,
+}) {
   const isoDate = date ?? getLocalISODate();
   const editUrl = `${STEADY_BASE_URL}/check-ins/${isoDate}/edit`;
   const html = await curlWithJar({ url: editUrl, jarPath, method: "GET" });
@@ -553,8 +574,10 @@ async function steadySubmitCheckin({ jarPath, team, text, mood = "calm", date })
 
   const updateUrl = action.startsWith("http") ? action : `${STEADY_BASE_URL}${action}`;
 
-  // Steady expects rich text HTML in answer_set[next]
-  const htmlText = `<p>${escapeHtml(text)}</p>`;
+  // Steady expects rich text HTML in answer_set fields
+  const previousHtml = textToRichTextHtml(previous);
+  const nextHtml = textToRichTextHtml(text);
+  const blockersHtml = textToRichTextHtml(blockers);
 
   const { headersText } = await curlWithJarToFiles({
     url: updateUrl,
@@ -566,9 +589,9 @@ async function steadySubmitCheckin({ jarPath, team, text, mood = "calm", date })
     dataUrlencode: [
       ["_method", "put"],
       ["authenticity_token", csrf],
-      ["answer_set[previous]", ""],
-      ["answer_set[next]", htmlText],
-      ["answer_set[blockers]", ""],
+      ["answer_set[previous]", previousHtml],
+      ["answer_set[next]", nextHtml],
+      ["answer_set[blockers]", blockersHtml],
       ["answer_set[mood]", mood],
       ["team_ids[]", teamId],
       ["button", ""],
@@ -642,12 +665,14 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
       {
         name: "steady_submit_checkin",
         description:
-          "Submit today's Steady check-in for ONE team with the provided text (no official API; uses web form submission).",
+          "Submit today's Steady check-in for ONE team (no official API; uses Steady's web form). Supports: previous work, next work, blockers, and mood.",
         inputSchema: {
           type: "object",
           properties: {
             team: { type: "string", description: "Team name or team UUID." },
-            text: { type: "string", description: "Check-in text." },
+            text: { type: "string", description: "What will you do next? (Steady field: next)" },
+            previous: { type: "string", description: "What did you do previously? (optional; Steady field: previous)" },
+            blockers: { type: "string", description: "Are you blocked by anything? (optional; Steady field: blockers)" },
             mood: { type: "string", description: "Mood (optional). Default: calm." },
             date: { type: "string", description: "YYYY-MM-DD (optional; default: today)" },
           },
@@ -715,10 +740,20 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
   if (name === "steady_submit_checkin") {
     const team = String(args.team);
     const text = String(args.text);
+    const previous = args.previous ? String(args.previous) : "";
+    const blockers = args.blockers ? String(args.blockers) : "";
     const mood = args.mood ? String(args.mood) : "calm";
     const date = args.date ? String(args.date) : undefined;
 
-    const res = await steadySubmitCheckin({ jarPath, team, text, mood, date });
+    const res = await steadySubmitCheckin({
+      jarPath,
+      team,
+      text,
+      previous,
+      blockers,
+      mood,
+      date,
+    });
     return { content: [{ type: "text", text: JSON.stringify(res, null, 2) }] };
   }
 
